@@ -364,6 +364,24 @@ class ExtensionConfig(object):
     for path in paths:
       compiler.cxxincludes += [os.path.join(sdk.path, *path)]
 
+    # Avoid redefining macros if the SDK already defines them (platform.h etc).
+    try:
+      plat_h = os.path.join(sdk.path, 'public', 'tier0', 'platform.h')
+      if os.path.exists(plat_h):
+        with open(plat_h, 'r', encoding='utf-8', errors='ignore') as f:
+          plat = f.read()
+        if '_stricmp' in plat or 'stricmp' in plat:
+          for d in ('stricmp=strcasecmp', '_stricmp=strcasecmp',
+                    '_snprintf=snprintf', '_vsnprintf=vsnprintf'):
+            if d in compiler.defines:
+              try:
+                compiler.defines.remove(d)
+              except ValueError:
+                pass
+    except Exception:
+      # Non-fatal: continue configuration even if we couldn't inspect headers.
+      pass
+
     if builder.target_platform == 'linux':
       if sdk.name == 'episode1':
         lib_folder = os.path.join(sdk.path, 'linux_sdk')
@@ -443,6 +461,26 @@ class ExtensionConfig(object):
 Extension = ExtensionConfig()
 Extension.detectSDKs()
 Extension.configure()
+
+# Build local safetyhook (if present) so detours/safetyhook headers and libs are available.
+sm_public = os.path.join(Extension.sm_root, 'public')
+safetyhook_builder_path = os.path.join(sm_public, 'safetyhook', 'AMBuilder')
+if os.path.exists(safetyhook_builder_path):
+  class SafetyHookShim(object):
+    def __init__(self):
+      try:
+        self.all_targets = [ builder.DetectCompilers() ]
+      except Exception:
+        self.all_targets = []
+      self.libsafetyhook = None
+  SafetyHook = SafetyHookShim()
+  # Run the safetyhook AMBuilder (if provided by SourceMod tree) to populate libsafetyhook
+  try:
+    builder.Build('safetyhook/AMBuilder', { 'SafetyHook': SafetyHook })
+    Extension.libsafetyhook = getattr(SafetyHook, 'libsafetyhook', None)
+  except Exception:
+    # Non-fatal: proceed without safetyhook if it fails to build here.
+    pass
 
 # Add additional buildscripts here
 BuildScripts = [
