@@ -95,8 +95,8 @@ jobs:
         
       - name: Getting ambuild
         run: |
-          python -m pip install wheel
-          pip install git+https://github.com/alliedmodders/ambuild
+          python -m pip install --upgrade pip setuptools wheel
+          pip install --no-build-isolation git+https://github.com/alliedmodders/ambuild
           
       - name: Getting hl2sdk-l4d2
         uses: actions/checkout@v4
