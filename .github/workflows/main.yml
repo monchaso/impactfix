@@ -1,4 +1,7 @@
-name: CI
+name: build
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 on:
   push:
@@ -22,39 +25,44 @@ jobs:
       matrix:
         os:
           - ubuntu-latest
-          - ubuntu-20.04
+          - ubuntu-22.04
           - windows-latest
           
         sm_version:
           - "1.9"
           - "1.10"
           - "1.11"
+          - "1.12"
           - "latest"
           
         include:
-          # Use MM:Source 1.10 as base version
-          - meta_version: "1.10"
-            meta_branch: "1.10-dev"
-            
-          - os_short: linux
-            
+          # Use MM:Source 1.12 as base version
+          - meta_version: "1.12"
+            meta_branch: "1.12-dev"
+
+          - sm_version: "1.9"
+            sm_branch: "1.9-dev"
+
+          - sm_version: "1.10"
+            sm_branch: "1.10-dev"
+          
+          - sm_version: "1.11"
+            sm_branch: "1.11-dev"
+
+          - sm_version: "1.12"
+            sm_branch: "1.12-dev"
+
           - sm_version: latest
             sm_branch: master
             meta_version: latest
             meta_branch: master
-            
-          - sm_version: "1.9"
-            sm_branch: "1.9-dev"
-            
-          - sm_version: "1.10"
-            sm_branch: "1.10-dev"
-            
-          - sm_version: "1.11"
-            sm_branch: "1.11-dev"
-            
-          - os: ubuntu-20.04
+
+          - os: ubuntu-22.04
             os_short: oldlinux
-            
+
+          - os: ubuntu-latest
+            os_short: linux
+          
           - os: windows-latest
             os_short: win
             
@@ -73,6 +81,24 @@ jobs:
           echo "CC=clang" >> $GITHUB_ENV
           echo "CXX=clang++" >> $GITHUB_ENV
           
+      - name: Add msbuild to PATH (Windows)
+        if: runner.os == 'Windows'
+        uses: microsoft/setup-msbuild@v2
+        
+      - name: Install (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          :: See https://github.com/microsoft/vswhere/wiki/Find-VC
+          for /f "usebackq delims=*" %%i in (`vswhere -latest -property installationPath`) do (
+            call "%%i"\Common7\Tools\vsdevcmd.bat -arch=x86 -host_arch=x64
+          )
+          
+          :: Loop over all environment variables and make them global.
+          for /f "delims== tokens=1,2" %%a in ('set') do (
+            echo>>"%GITHUB_ENV%" %%a=%%b
+          )
+          
       - name: Getting SourceMod ${{ matrix.sm_version }}
         uses: actions/checkout@v4
         with:
@@ -88,11 +114,17 @@ jobs:
           ref: ${{ matrix.meta_branch }}
           path: metamod-${{ matrix.meta_version }}
           
+      - name: Getting AMBuild
+        uses: actions/checkout@v4
+        with:
+          repository: alliedmodders/ambuild
+          path: ambuild
+          
       - name: Setting up Python
         uses: actions/setup-python@v5
         with:
-          python-version: 3.8
-        
+          python-version: '3.x'
+          
       - name: Getting ambuild
         run: |
           python -m pip install wheel
@@ -105,27 +137,40 @@ jobs:
           ref: l4d2
           path: hl2sdk-l4d2
           
+      - name: Getting hl2sdk-l4d
+        uses: actions/checkout@v4
+        with:
+          repository: alliedmodders/hl2sdk
+          ref: l4d
+          path: hl2sdk-l4d
+          
+      - name: Getting hl2sdk-tf2
+        uses: actions/checkout@v4
+        with:
+          repository: alliedmodders/hl2sdk
+          ref: tf2
+          path: hl2sdk-tf2
+          
       - name: Getting own repository
         uses: actions/checkout@v4
         with:
-          path: extension
-          submodules: recursive
+          path: src
           
-      - name: Compiling impactfix files
+      - name: Compiling ${{ github.event.repository.name }} files
         shell: bash
-        working-directory: extension
+        working-directory: src
         run: |
           mkdir build
           cd build
-          python3 \
+          python \
             ../configure.py \
-            --enable-optimize \
-            --sm-path="${{ github.workspace }}/sourcemod-${{ matrix.sm_version }}"\
-            --mms-path="${{ github.workspace }}/metamod-${{ matrix.meta_version }}"
+            --sm-path="${{ github.workspace }}/sourcemod-${{ matrix.sm_version }}" \
+            --mms-path="${{ github.workspace }}/metamod-${{ matrix.meta_version }}" \
+            --enable-optimize
           ambuild
-          
+           
       - name: Uploading package
         uses: actions/upload-artifact@v4
         with:
-          name: impactfix-sm${{ matrix.sm_version }}-${{ matrix.os_short }}-${{ env.GITHUB_SHA_SHORT }}
-          path: extension/build/package
+          name: ${{ github.event.repository.name }}-sm${{ matrix.sm_version }}-${{ matrix.os_short }}-${{ env.GITHUB_SHA_SHORT }}
+          path: src/build/package
